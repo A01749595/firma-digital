@@ -2,4 +2,3 @@ boto3
 streamlit
 pandas
 cryptography
-zipfile
