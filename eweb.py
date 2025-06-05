@@ -7,7 +7,8 @@ from datetime import datetime
 import zipfile
 import io
 from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
-from cryptography.hazmat.primitives import serialization, hashesimport time
+from cryptography.hazmat.primitives import serialization, hashes
+import time
 from cryptography.exceptions import InvalidSignature
 import qrcode
 import time
