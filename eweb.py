@@ -10,8 +10,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding, ec
 from cryptography.hazmat.primitives import serialization, hashesimport time
 from cryptography.exceptions import InvalidSignature
 import qrcode
+import time
 from PIL import Image
 import fitz  # PyMuPDF
+import base64
+import requests
 import boto3  # Added for AWS S3 integration
 from dotenv import load_dotenv  # Added for loading .env file
 
@@ -33,6 +36,15 @@ s3_client = boto3.client(
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     region_name=os.getenv("AWS_DEFAULT_REGION")
 )
+
+# GitHub Configuration
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # Add your GitHub Personal Access Token to .env
+GITHUB_REPO = "A01749595/firma-digital"  # Replace with your GitHub username and repo name
+GITHUB_BRANCH = "main"  # Replace with your branch name
+GITHUB_FILE_PATH = "usuarios.csv"  # Path to usuarios.csv in the repository
+
+# Path to usuarios.csv in S3
+USERS_FILE_S3_KEY = "app_data/usuarios.csv"
 # --------- Funciones para Firmar Documentos---------
 def generar_par_llaves(method="rsa"):
     """Generar el par de llaves pública y privada según el método."""
