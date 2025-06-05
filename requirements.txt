@@ -5,3 +5,4 @@ cryptography
 dotenv
 qr
 qrcode
+fitz
