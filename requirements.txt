@@ -3,9 +3,12 @@ streamlit
 pandas
 cryptography
 dotenv
+python-dotenv
 qr
 qrcode
 fitz
 frontend
 static
+Pillow
 PyMuPDF
+requests
