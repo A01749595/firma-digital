@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuración de AWS S3
-S3_BUCKET_NAME = "bucket-efirma"  # Nombre de la bucket
+S3_BUCKET_NAME = "bucket-firmadig"  # Nombre de la bucket
 S3_KEY_PREFIX = "media/"           # Carpeta en el bucket
 s3_client = boto3.client(
     's3',
