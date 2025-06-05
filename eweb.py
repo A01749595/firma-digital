@@ -24,7 +24,7 @@ st.set_page_config(page_title="App de Firma Digital", layout="centered")
 ADMIN_SECRET_CODE = os.getenv("ADMIN_SECRET_CODE", "admin123")  # Cambia "admin123" por un código seguro
 
 # Configuración de AWS S3
-S3_BUCKET_NAME = "bucket-efirma"  # Reemplaza con el nombre de tu bucket
+S3_BUCKET_NAME = "bucket-firmadig"  # Reemplaza con el nombre de tu bucket
 S3_KEY_PREFIX = "media/"
 s3_client = boto3.client(
     's3',
