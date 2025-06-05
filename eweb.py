@@ -307,6 +307,45 @@ def insertar_qr_en_pdf(pdf_path, output_pdf_path, qr_data="https://ejemplo.com",
 
     return output_pdf_path
 
+# Function to update usuarios.csv in GitHub repository
+def update_users_csv_in_github():
+    try:
+        # Download the updated usuarios.csv from S3
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=USERS_FILE_S3_KEY)
+        csv_content = response['Body'].read()
+
+        # Base64 encode the content
+        content_base64 = base64.b64encode(csv_content).decode('utf-8')
+
+        # Get the current file from GitHub to obtain its SHA (required for updates)
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}?ref={GITHUB_BRANCH}"
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        file_info = response.json()
+        current_sha = file_info['sha']
+
+        # Update the file on GitHub
+        update_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}"
+        payload = {
+            "message": f"Update usuarios.csv with new user registration at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "content": content_base64,
+            "sha": current_sha,
+            "branch": GITHUB_BRANCH
+        }
+        response = requests.put(update_url, headers=headers, json=payload)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        st.error(f"Error updating usuarios.csv in GitHub: {e}")
+        return False
+
+# Configuration
+USER_FILE = "usuarios.csv"
+
 # ------ App -----
 
 # Definir el CSS para el fondo, tipografía e imágenes
