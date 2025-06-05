@@ -8,3 +8,4 @@ qrcode
 fitz
 frontend
 static
+PyMuPDF
