@@ -540,7 +540,7 @@ else:
     
     # Mostrar pestañas según el rol
     if st.session_state.role == "admin":
-        tabs = st.tabs([t("sign_tab"), t("qr_tab"), t("download_files_tab")])
+        tabs = st.tabs([t("sign_tab"), t("qr_tab"), t("verify_tab"), t("download_files_tab")])
         
         with tabs[0]:  # Pestaña Firmar Documento
             st.header(t("sign_header"))
@@ -681,41 +681,8 @@ else:
                         mime="application/pdf",
                         key="download_qr_pdf"
                     )
-        
-        with tabs[2]:  # Pestaña Descargar Archivos de Alumnos
-            st.header(t("download_files_tab"))
-            # Listar todos los usuarios con rol "student"
-            df = pd.read_csv(USER_FILE)
-            students = df[df["role"] == "student"]["username"].tolist()
-            
-            if students:
-                selected_student = st.selectbox(t("select_user"), students)
-                if st.button(t("download_user_files")):
-                    # Listar archivos del usuario seleccionado en S3
-                    user_prefix = f"{S3_KEY_PREFIX}{selected_student}/documents/"
-                    try:
-                        response = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=user_prefix)
-                        files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'] != user_prefix]
-                        if files:
-                            zip_content = create_zip_file_from_s3(files)
-                            st.download_button(
-                                label=t("download_zip"),
-                                data=zip_content,
-                                file_name=f"{selected_student}_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                                mime="application/zip",
-                                key=f"download_zip_{selected_student}"
-                            )
-                        else:
-                            st.warning(t("no_files"))
-                    except Exception as e:
-                        st.error(f"Error listing files for {selected_student}: {e}")
-            else:
-                st.warning("No hay usuarios con rol 'student' registrados.")
 
-    elif st.session_state.role == "student":
-        tabs = st.tabs([t("verify_tab"), t("files_tab")])
-        
-        with tabs[0]:  # Pestaña Verificar Documento
+        with tabs[2]:  # Pestaña Verificar Documento
             st.header(t("verify_header"))
             verify_file = st.file_uploader(t("upload_verify"), type=["pdf"], key="verify_doc")
             signature_file = st.file_uploader(t("upload_signature"), type=["sig"], key="verify_sig")
@@ -750,8 +717,42 @@ else:
                             st.write(t("verify_caption"))
                         else:
                             st.error(t("verify_error", error=message))
+
+        with tabs[3]:  # Pestaña Descargar Archivos de Alumnos
+            st.header(t("download_files_tab"))
+            # Listar todos los usuarios con rol "student"
+            df = pd.read_csv(USER_FILE)
+            students = df[df["role"] == "student"]["username"].tolist()
+            
+            if students:
+                selected_student = st.selectbox(t("select_user"), students)
+                if st.button(t("download_user_files")):
+                    # Listar archivos del usuario seleccionado en S3
+                    user_prefix = f"{S3_KEY_PREFIX}{selected_student}/documents/"
+                    try:
+                        response = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=user_prefix)
+                        files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'] != user_prefix]
+                        if files:
+                            zip_content = create_zip_file_from_s3(files)
+                            st.download_button(
+                                label=t("download_zip"),
+                                data=zip_content,
+                                file_name=f"{selected_student}_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                                mime="application/zip",
+                                key=f"download_zip_{selected_student}"
+                            )
+                        else:
+                            st.warning(t("no_files"))
+                    except Exception as e:
+                        st.error(f"Error listing files for {selected_student}: {e}")
+            else:
+                st.warning("No hay usuarios con rol 'student' registrados.")
+
+    elif st.session_state.role == "student":
+        tabs = st.tabs([t("files_tab")])
         
-        with tabs[1]:  # Pestaña Mis Archivos
+        
+        with tabs[0]:  # Pestaña Mis Archivos
             st.header(t("files_tab"))
             # Listar archivos del usuario "student" en S3
             user_prefix = f"{S3_KEY_PREFIX}{st.session_state.username}/documents/"
