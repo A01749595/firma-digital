@@ -26,7 +26,7 @@ load_dotenv()
 st.set_page_config(page_title="App de Firma Digital", layout="centered")
 
 # Código de verificación para administradores 
-ADMIN_SECRET_CODE = os.getenv("ADMIN_SECRET_CODE", "admin123")  # Cambia "admin123" por un código seguro
+ADMIN_SECRET_CODE = os.getenv("ADMIN_SECRET_CODE")  
 
 # Configuración de AWS S3
 S3_BUCKET_NAME = "bucket-firmadig"  # Reemplaza con el nombre de tu bucket
