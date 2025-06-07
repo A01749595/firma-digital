@@ -49,10 +49,11 @@ def hash_username(username):
     """Crear SHA-256 hash del nombre de usuario."""
     return hashlib.sha256(username.encode()).hexdigest()
 
-def cargar_llave_priv(llave_priv):
-    """Cargar llave privada desde un archivo en S3."""
+def cargar_llave_priv(username, method):
+    """Cargar llave privada desde S3 basada en el usuario y método."""
+    key_path = f"{S3_KEY_PREFIX}{username}/keys/{username}_{method}_private_key.pem"
     try:
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=llave_priv)
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=key_path)
         llave_priv_data = response['Body'].read()
         llave_priv = serialization.load_pem_private_key(
             llave_priv_data,
@@ -60,7 +61,7 @@ def cargar_llave_priv(llave_priv):
         )
         return llave_priv
     except Exception as e:
-        raise Exception(f"Error cargando llave privada de S3: {e}")
+        raise Exception(f"Error cargando llave privada de S3 para {username}: {e}")
 
 def firmar_documento(file_key, private_key, username, method="rsa"):
     """Firmar documento con la llave privada según el método."""
@@ -94,37 +95,19 @@ def guardar_firma(signature, output_key):
         raise Exception(f"Error saving signature to S3: {e}")
 
 def sign_document(input_file_key, output_prefix, username, method="rsa"):
-    """Firmar un documento generando un nuevo par de claves según el método."""
+    """Firmar un documento usando la llave privada pre-generada del usuario."""
     timestamp = str(int(time.time()))
     doc_name = os.path.splitext(os.path.basename(input_file_key.split('/')[-1]))[0]
     signature_key = f"{output_prefix}{username}_{doc_name}_{timestamp}.sig"
-    key_prefix = f"{output_prefix}keys/"
 
     try:
-        # Generar un nuevo par de claves
-        private_key, public_key = generar_par_llaves(method)
+        # Cargar la llave privada del usuario
+        private_key = cargar_llave_priv(username, method)
 
         # Firmar el documento
         signature = firmar_documento(input_file_key, private_key, username, method)
         guardar_firma(signature, signature_key)
 
-        # Guardar la clave privada en formato PEM en S3
-        private_key_key = f"{key_prefix}{username}_private_key_{method}_{timestamp}.pem"
-        private_key_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=private_key_key, Body=private_key_bytes)
-
-        # Guardar la clave pública en formato PEM en S3
-        public_key_key = f"{key_prefix}{username}_public_key_{method}_{timestamp}.pem"
-        public_key_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-        s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=public_key_key, Body=public_key_bytes)
-
-        return signature_key, private_key_key, public_key_key, None
+        return signature_key, None, None, None
     except Exception as e:
         return None, None, None, f"Error al firmar: {str(e)}"
