@@ -435,9 +435,9 @@ init_user_db()
 # Muestra los logos a los lados
 col1, col2, col3 = st.columns([5, 2, 5])
 with col1:
-    st.image("assets\tec de monterrey.png", width=250)
+    st.image(r"assets\tec de monterrey.png", width=250)
 with col3:
-    st.image("assest\PREPANET.png", width=190)
+    st.image(r"assets\PREPANET.png", width=190)
 
 # Botón de cambio de idioma
 if st.button(t("language_button")):
