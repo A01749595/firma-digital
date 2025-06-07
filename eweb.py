@@ -18,6 +18,9 @@ import base64
 import requests
 import boto3  # Added for AWS S3 integration
 from dotenv import load_dotenv  # Added for loading .env file
+from firmar import sign_document, generar_par_llaves
+from verificar import verify_document
+from qr import insertar_qr_en_pdf
 
 # Cargar variables de entorno desde .env
 load_dotenv()
@@ -345,14 +348,40 @@ def register_user(username, password, role):
         df = pd.concat([df, new_user], ignore_index=True)
         df.to_csv(USER_FILE, index=False)
 
-        # Crear el "directorio" del usuario en S3 (usando un prefijo)
-        user_prefix = f"{S3_KEY_PREFIX}{username}/documents/"
+        # Crear el "directorio" del usuario en S3
+        user_prefix = f"{S3_KEY_PREFIX}{username}/"
+        documents_prefix = f"{user_prefix}documents/"
+        keys_prefix = f"{user_prefix}keys/"
         try:
-            # S3 no requiere crear "carpetas" explícitamente, pero podemos crear un objeto vacío para simularlo
-            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=user_prefix)
+            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=documents_prefix)
+            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=keys_prefix)
         except Exception as e:
             st.error(f"Error creating S3 prefix for {username}: {e}")
-            return True, "register_success"
+            return False, "register_error"
+
+        # Generar y guardar dos pares de llaves (RSA y ECDSA) si es estudiante
+        if role == "student":
+            for method in ["rsa", "ecdsa"]:
+                try:
+                    private_key, public_key = generar_par_llaves(method)
+                    # Guardar llave privada
+                    private_key_key = f"{keys_prefix}{username}_{method}_private_key.pem"
+                    private_key_bytes = private_key.private_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PrivateFormat.PKCS8,
+                        encryption_algorithm=serialization.NoEncryption()
+                    )
+                    s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=private_key_key, Body=private_key_bytes)
+                    # Guardar llave pública
+                    public_key_key = f"{keys_prefix}{username}_{method}_public_key.pem"
+                    public_key_bytes = public_key.public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo
+                    )
+                    s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=public_key_key, Body=public_key_bytes)
+                except Exception as e:
+                    st.error(f"Error generating/storing keys for {username} ({method}): {e}")
+                    return False, "register_error"
 
         return True, "register_success"
     except OSError as e:
@@ -396,19 +425,19 @@ if "logged_in" not in st.session_state:
 if "language" not in st.session_state:
     st.session_state.language = "es"
 if "signed_files" not in st.session_state:
-    st.session_state.signed_files = None  # Store paths of signed files
+    st.session_state.signed_files = None
 if "signing_method" not in st.session_state:
-    st.session_state.signing_method = None  # Track signing method (rsa or ecdsa)
+    st.session_state.signing_method = None
 
 # Inicializar la base de datos de usuarios
 init_user_db()
 
-# Muestra los logos a los lados (Tec y Prepanet) with error handling
+# Muestra los logos a los lados
 col1, col2, col3 = st.columns([5, 2, 5])
 with col1:
-        st.image("assets/tec de monterrey.png", width=250)
+    st.image(r"C:\Users\Usuario\OneDrive\Documentos\Visual Studio N\tec de monterrey.png", width=250)
 with col3:
-        st.image("assets/PREPANET.png", width=190)
+    st.image(r"C:\Users\Usuario\OneDrive\Documentos\Visual Studio N\PREPANET.png", width=190)
 
 # Botón de cambio de idioma
 if st.button(t("language_button")):
@@ -419,15 +448,13 @@ if st.button(t("language_button")):
 st.title(t("welcome_title"))
 
 if not st.session_state.logged_in:
-    # Controlar si se muestran las pestañas de administrador o usuario
     if "show_admin_tabs" not in st.session_state:
         st.session_state.show_admin_tabs = False
 
     if not st.session_state.show_admin_tabs:
-        # Pestañas para usuario por defecto
         tabs = st.tabs([t("login_tab"), t("register_tab")])
         
-        with tabs[0]:  # Pestaña Iniciar Sesión (Alumno)
+        with tabs[0]:
             st.header(t("login_header"))
             with st.form("login_form_user"):
                 username = st.text_input(t("username"), key="user_login_username")
@@ -445,9 +472,8 @@ if not st.session_state.logged_in:
                         st.rerun()
                     else:
                         st.error(t("login_error"))
-            
         
-        with tabs[1]:  # Pestaña Registrarse (Alumno)
+        with tabs[1]:
             st.header(t("register_header"))
             with st.form("register_form_user"):
                 new_username = st.text_input(t("new_username"), key="user_register_username")
@@ -460,7 +486,7 @@ if not st.session_state.logged_in:
                         success, message = register_user(new_username, new_password, role_value)
                         if success:
                             st.success(t("register_success"))
-                            time.sleep(2)  # Delay to show success message
+                            time.sleep(2)
                             st.session_state.show_admin_tabs = False
                             st.rerun()
                         else:
@@ -471,10 +497,9 @@ if not st.session_state.logged_in:
                 st.session_state.show_admin_tabs = True
                 st.rerun()
     else:
-        # Pestañas para administrador
         tabs = st.tabs([t("login_tab"), t("register_tab")])
         
-        with tabs[0]:  # Pestaña Iniciar Sesión (Administrador)
+        with tabs[0]:
             st.header(t("login_header"))
             if st.button(t("back_button"), key="back_login_admin"):
                 st.session_state.show_admin_tabs = False
@@ -496,7 +521,7 @@ if not st.session_state.logged_in:
                     else:
                         st.error(t("login_error"))
         
-        with tabs[1]:  # Pestaña Registrarse (Administrador)
+        with tabs[1]:
             st.header(t("register_header"))
             if st.button(t("back_button"), key="back_register_admin"):
                 st.session_state.show_admin_tabs = False
@@ -516,7 +541,7 @@ if not st.session_state.logged_in:
                             success, message = register_user(new_username, new_password, role_value)
                             if success:
                                 st.success(t("register_success"))
-                                time.sleep(2)  # Delay to show success message
+                                time.sleep(2)
                                 st.session_state.show_admin_tabs = False
                                 st.rerun()
                             else:
@@ -524,12 +549,10 @@ if not st.session_state.logged_in:
                     else:
                         st.error(t("register_error_empty"))
 else:
-    # Mensaje de Bienvenida
     role_display = t("role_admin") if st.session_state.role == "admin" else t("role_user")
     st.title(t("welcome", username=st.session_state.username, role=role_display))
     st.write(t("dashboard"))
     
-    # Botón de cerrar sesión
     if st.button(t("logout")):
         st.session_state.logged_in = False
         st.session_state.username = ""
@@ -538,36 +561,38 @@ else:
         st.session_state.signing_method = None
         st.rerun()
     
-    # Mostrar pestañas según el rol
     if st.session_state.role == "admin":
         tabs = st.tabs([t("sign_tab"), t("qr_tab"), t("verify_tab"), t("download_files_tab")])
         
-        with tabs[0]:  # Pestaña Firmar Documento
+        with tabs[0]:
             st.header(t("sign_header"))
             uploaded_file = st.file_uploader(t("upload_sign"), type=["pdf"], key="sign_uploader")
             if uploaded_file:
+                # Reset signing_success when a new file is uploaded
+                if "last_uploaded_file" not in st.session_state or st.session_state.last_uploaded_file != uploaded_file.name:
+                    st.session_state.signing_success = False
+                    st.session_state.last_uploaded_file = uploaded_file.name
+                
                 st.write(t("document_uploaded", filename=uploaded_file.name))
                 
-                # Botones para elegir método de firma
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button(t("sign_with_rsa")):
                         st.session_state.signing_method = "rsa"
+                        st.session_state.signing_success = False
                 with col2:
                     if st.button(t("sign_with_ecdsa")):
                         st.session_state.signing_method = "ecdsa"
+                        st.session_state.signing_success = False
 
-                # Mostrar el formulario de firma solo si se ha seleccionado un método
                 if st.session_state.signing_method:
                     with st.form("sign_form"):
-                        # Seleccionar el usuario "alumno" para firmar su documento
                         df = pd.read_csv(USER_FILE)
                         alumnos = df[df["role"] == "student"]["username"].tolist()
                         target_user = st.selectbox(t("select_user"), alumnos)
                         sign_button = st.form_submit_button(t("sign_button"))
                         
                         if sign_button:
-                            # Guardar archivo subido en S3
                             user_prefix = f"{S3_KEY_PREFIX}{target_user}/documents/"
                             doc_key = f"{user_prefix}{uploaded_file.name}"
                             try:
@@ -576,8 +601,7 @@ else:
                                 st.error(f"Error uploading document to S3: {e}")
                                 st.stop()
                             
-                            # Firmar documento según el método seleccionado
-                            signature_key, private_key_key, public_key_key, error = sign_document(
+                            signature_key, _, _, error = sign_document(
                                 doc_key, user_prefix, target_user, method=st.session_state.signing_method
                             )
                             
@@ -586,46 +610,13 @@ else:
                             else:
                                 st.success(t("sign_success"))
                                 st.write(t("signature_caption"))
-                                # Almacenar claves en S3 en session_state
-                                st.session_state.signed_files = {
-                                    "signature": signature_key,
-                                    "public_key": public_key_key,
-                                    "private_key": private_key_key
-                                }
-                                # Crear el archivo ZIP desde S3
-                                try:
-                                    zip_content = create_zip_file_from_s3([
-                                        signature_key,
-                                        public_key_key,
-                                        private_key_key
-                                    ])
-                                    st.session_state.zip_file = zip_content
-                                except Exception as e:
-                                    st.error(f"Error creating ZIP file: {e}")
-                                    st.session_state.zip_file = None
-                                # Resetear el método de firma después de un éxito
+                                st.session_state.signing_success = True
                                 st.session_state.signing_method = None
-                                st.rerun()
             
-            # Mostrar botón de descarga del ZIP si está disponible
-            if "zip_file" in st.session_state and st.session_state.zip_file:
-                try:
-                    st.download_button(
-                        label=t("download_zip"),
-                        data=st.session_state.zip_file,
-                        file_name=f"{st.session_state.username}_signed_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                        mime="application/zip",
-                        key="download_zip"
-                    )
-                except Exception as e:
-                    st.error(f"Error providing ZIP download: {e}")
-            else:
-                if uploaded_file and not st.session_state.signing_method:
-                    st.warning("Por favor, selecciona un método de firma (RSA o ECDSA) antes de continuar.")
-                elif not getattr(st.session_state, "zip_file", None):
-                    st.info("Firma el documento para descargar el archivo ZIP con la firma y las claves.")
+            if uploaded_file and not st.session_state.signing_method and not st.session_state.signing_success:
+                st.warning("Por favor, selecciona un método de firma (RSA o ECDSA) antes de continuar.")
         
-        with tabs[1]:  # Pestaña QR
+        with tabs[1]:
             st.header(t("qr_tab"))
             qr_pdf_file = st.file_uploader(t("upload_pdf_for_qr"), type=["pdf"], key="qr_pdf_uploader")
             
@@ -633,7 +624,6 @@ else:
                 st.write(t("document_uploaded", filename=qr_pdf_file.name))
                 
                 if st.button(t("generate_qr_button")):
-                    # Guardar el PDF subido temporalmente en S3
                     user_prefix = f"{S3_KEY_PREFIX}{st.session_state.username}/documents/"
                     pdf_key = f"{user_prefix}{qr_pdf_file.name}"
                     try:
@@ -642,22 +632,17 @@ else:
                         st.error(f"Error uploading PDF to S3: {e}")
                         st.stop()
                     
-                    # Generar nombre de salida para el PDF con QR
                     base, ext = os.path.splitext(qr_pdf_file.name)
                     output_pdf_key = f"{user_prefix}{base}_qr{ext}"
                     
-                    # Descargar el PDF temporalmente para procesarlo
                     temp_pdf_path = f"temp_{qr_pdf_file.name}"
                     s3_client.download_file(S3_BUCKET_NAME, pdf_key, temp_pdf_path)
                     
-                    # Llamar a la función de qr.py para insertar el QR
                     temp_output_path = f"temp_{base}_qr{ext}"
                     try:
                         insertar_qr_en_pdf(temp_pdf_path, temp_output_path)
                         st.success(t("qr_generation_success"))
-                        # Subir el PDF con QR a S3
                         s3_client.upload_file(temp_output_path, S3_BUCKET_NAME, output_pdf_key)
-                        # Leer el PDF generado para descarga
                         with open(temp_output_path, "rb") as f:
                             st.session_state.qr_pdf_content = f.read()
                         st.session_state.qr_pdf_filename = f"{base}_qr{ext}"
@@ -666,13 +651,11 @@ else:
                         st.session_state.qr_pdf_content = None
                         st.session_state.qr_pdf_filename = None
                     
-                    # Limpiar archivos temporales
                     if os.path.exists(temp_pdf_path):
                         os.remove(temp_pdf_path)
                     if os.path.exists(temp_output_path):
                         os.remove(temp_output_path)
                 
-                # Botón para descargar el PDF con QR
                 if "qr_pdf_content" in st.session_state and st.session_state.qr_pdf_content:
                     st.download_button(
                         label=t("download_pdf_with_qr"),
@@ -682,62 +665,57 @@ else:
                         key="download_qr_pdf"
                     )
 
-        with tabs[2]:  # Pestaña Verificar Documento
+        with tabs[2]:
             st.header(t("verify_header"))
             verify_file = st.file_uploader(t("upload_verify"), type=["pdf"], key="verify_doc")
-            signature_file = st.file_uploader(t("upload_signature"), type=["sig"], key="verify_sig")
-            public_key_file = st.file_uploader(t("upload_public_key"), type=["pem"], key="verify_pub")
             
-            if verify_file and signature_file and public_key_file:
+            if verify_file:
                 st.write(t("document_uploaded", filename=verify_file.name))
                 with st.form("verify_form"):
+                    df = pd.read_csv(USER_FILE)
+                    alumnos = df[df["role"] == "student"]["username"].tolist()
+                    target_user = st.selectbox(t("select_user_verify"), alumnos)
                     verify_button = st.form_submit_button(t("verify_button"))
+                    
                     if verify_button:
-                        # Guardar archivos subidos en S3
-                        user_prefix = f"{S3_KEY_PREFIX}{st.session_state.username}/documents/"
+                        user_prefix = f"{S3_KEY_PREFIX}{target_user}/documents/"
                         doc_key = f"{user_prefix}{verify_file.name}"
-                        sig_key = f"{user_prefix}{signature_file.name}"
-                        pub_key = f"{user_prefix}{public_key_file.name}"
                         
                         try:
                             s3_client.upload_fileobj(verify_file, S3_BUCKET_NAME, doc_key)
-                            s3_client.upload_fileobj(signature_file, S3_BUCKET_NAME, sig_key)
-                            s3_client.upload_fileobj(public_key_file, S3_BUCKET_NAME, pub_key)
                         except Exception as e:
-                            st.error(f"Error uploading files to S3: {e}")
+                            st.error(f"Error uploading document to S3: {e}")
                             st.stop()
                         
-                        # Verificar documento
-                        is_valid, message = verify_document(doc_key, sig_key, pub_key)
+                        is_valid, message = verify_document(doc_key, target_user)
                         
                         if is_valid:
                             st.success(t("verify_success"))
                             st.write(t("verify_details"))
                             st.write(t("verified_on", timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
                             st.write(t("verify_caption"))
+                            st.write(message)
                         else:
                             st.error(t("verify_error", error=message))
 
-        with tabs[3]:  # Pestaña Descargar Archivos de Alumnos
+        with tabs[3]:
             st.header(t("download_files_tab"))
-            # Listar todos los usuarios con rol "student"
             df = pd.read_csv(USER_FILE)
             students = df[df["role"] == "student"]["username"].tolist()
             
             if students:
                 selected_student = st.selectbox(t("select_user"), students)
                 if st.button(t("download_user_files")):
-                    # Listar archivos del usuario seleccionado en S3
                     user_prefix = f"{S3_KEY_PREFIX}{selected_student}/documents/"
                     try:
                         response = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=user_prefix)
-                        files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'] != user_prefix]
+                        files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'] != user_prefix and obj['Key'].endswith('.pdf')]
                         if files:
                             zip_content = create_zip_file_from_s3(files)
                             st.download_button(
                                 label=t("download_zip"),
                                 data=zip_content,
-                                file_name=f"{selected_student}_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                                file_name=f"{selected_student}_signed_docs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
                                 mime="application/zip",
                                 key=f"download_zip_{selected_student}"
                             )
@@ -751,30 +729,27 @@ else:
     elif st.session_state.role == "student":
         tabs = st.tabs([t("files_tab")])
         
-        
-        with tabs[0]:  # Pestaña Mis Archivos
+        with tabs[0]:
             st.header(t("files_tab"))
-            # Listar archivos del usuario "student" en S3
             user_prefix = f"{S3_KEY_PREFIX}{st.session_state.username}/documents/"
             try:
                 response = s3_client.list_objects_v2(Bucket=S3_BUCKET_NAME, Prefix=user_prefix)
-                files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'] != user_prefix]
-                if files:
+                pdf_files = [obj['Key'] for obj in response.get('Contents', []) if obj['Key'] != user_prefix and obj['Key'].endswith('.pdf')]
+            
+                if pdf_files:
                     st.write("Archivos disponibles:")
-                    for file_key in files:
-                        file_name = file_key.split('/')[-1]
-                        st.write(file_name)
-                        # Generar un enlace de descarga para cada archivo
+                    for pdf_key in pdf_files:
+                        pdf_name = pdf_key.split('/')[-1]
+                        st.write(f"Documento: {pdf_name}")
                         try:
-                            # Generar un URL presignado para descarga segura
-                            download_url = s3_client.generate_presigned_url(
+                            pdf_download_url = s3_client.generate_presigned_url(
                                 'get_object',
-                                Params={'Bucket': S3_BUCKET_NAME, 'Key': file_key},
-                                ExpiresIn=3600  # URL válida por 1 hora
+                                Params={'Bucket': S3_BUCKET_NAME, 'Key': pdf_key},
+                                ExpiresIn=3600
                             )
-                            st.markdown(f"[Descargar {file_name}]({download_url})")
+                            st.markdown(f"[Descargar PDF]({pdf_download_url})")
                         except Exception as e:
-                            st.error(f"Error generating download link for {file_name}: {e}")
+                            st.error(f"Error generating download link for {pdf_name}: {e}")
                 else:
                     st.warning(t("no_files"))
             except Exception as e:
