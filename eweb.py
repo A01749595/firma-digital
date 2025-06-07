@@ -54,9 +54,9 @@ USERS_FILE_S3_KEY = "app_data/usuarios.csv"
 # Function to update usuarios.csv in GitHub repository
 def update_users_csv_in_github():
     try:
-        # Download the updated usuarios.csv from S3
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=USERS_FILE_S3_KEY)
-        csv_content = response['Body'].read()
+        # Read the updated local usuarios.csv
+        with open(USER_FILE, 'rb') as f:
+            csv_content = f.read()
 
         # Base64 encode the content
         content_base64 = base64.b64encode(csv_content).decode('utf-8')
@@ -68,18 +68,22 @@ def update_users_csv_in_github():
         }
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}?ref={GITHUB_BRANCH}"
         response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        file_info = response.json()
-        current_sha = file_info['sha']
+        current_sha = None
+        if response.status_code == 200:
+            file_info = response.json()
+            current_sha = file_info['sha']
+        elif response.status_code != 404:
+            response.raise_for_status()
 
-        # Update the file on GitHub
+        # Update or create the file on GitHub
         update_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}"
         payload = {
             "message": f"Update usuarios.csv with new user registration at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": content_base64,
-            "sha": current_sha,
             "branch": GITHUB_BRANCH
         }
+        if current_sha:
+            payload["sha"] = current_sha
         response = requests.put(update_url, headers=headers, json=payload)
         response.raise_for_status()
         return True
@@ -329,8 +333,41 @@ def hash_password(password):
 def init_user_db():
     try:
         if not os.path.exists(USER_FILE):
-            df = pd.DataFrame(columns=["username", "password", "role"])
-            df.to_csv(USER_FILE, index=False)
+            # Try to download from S3 first
+            try:
+                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=USERS_FILE_S3_KEY)
+                csv_content = response['Body'].read().decode('utf-8')
+                with open(USER_FILE, 'w') as f:
+                    f.write(csv_content)
+            except s3_client.exceptions.NoSuchKey:
+                # If not in S3, try GitHub
+                try:
+                    headers = {
+                        "Authorization": f"token {GITHUB_TOKEN}",
+                        "Accept": "application/vnd.github.v3+json"
+                    }
+                    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}?ref={GITHUB_BRANCH}"
+                    response = requests.get(url, headers=headers)
+                    if response.status_code == 200:
+                        file_info = response.json()
+                        csv_content = base64.b64decode(file_info['content']).decode('utf-8')
+                        with open(USER_FILE, 'w') as f:
+                            f.write(csv_content)
+                    else:
+                        # If not in GitHub, create an empty CSV
+                        df = pd.DataFrame(columns=["username", "password", "role"])
+                        df.to_csv(USER_FILE, index=False)
+                        # Upload to S3
+                        s3_client.upload_file(USER_FILE, S3_BUCKET_NAME, USERS_FILE_S3_KEY)
+                        # Upload to GitHub
+                        update_users_csv_in_github()
+                except Exception as e:
+                    st.error(f"Error initializing usuarios.csv from GitHub: {e}")
+                    # Create an empty CSV as a last resort
+                    df = pd.DataFrame(columns=["username", "password", "role"])
+                    df.to_csv(USER_FILE, index=False)
+                    s3_client.upload_file(USER_FILE, S3_BUCKET_NAME, USERS_FILE_S3_KEY)
+                    update_users_csv_in_github()
     except OSError as e:
         st.error(f"Error creating user database: {e}")
         raise
@@ -345,6 +382,16 @@ def register_user(username, password, role):
         new_user = pd.DataFrame([[username, hashed_password, role]], columns=["username", "password", "role"])
         df = pd.concat([df, new_user], ignore_index=True)
         df.to_csv(USER_FILE, index=False)
+
+        # Upload updated CSV to S3
+        try:
+            s3_client.upload_file(USER_FILE, S3_BUCKET_NAME, USERS_FILE_S3_KEY)
+        except Exception as e:
+            st.error(f"Error uploading usuarios.csv to S3: {e}")
+
+        # Update usuarios.csv in GitHub
+        if not update_users_csv_in_github():
+            st.error("Failed to update GitHub, but user registered locally and in S3.")
 
         # Crear el "directorio" del usuario en S3
         user_prefix = f"{S3_KEY_PREFIX}{username}/"
