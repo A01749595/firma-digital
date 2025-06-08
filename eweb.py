@@ -721,39 +721,44 @@ else:
             
             if qr_pdf_file:
                 st.write(t("document_uploaded", filename=qr_pdf_file.name))
-                
-                if st.button(t("generate_qr_button")):
-                    user_prefix = f"{S3_KEY_PREFIX}{st.session_state.username}/documents/"
-                    pdf_key = f"{user_prefix}{qr_pdf_file.name}"
-                    try:
-                        s3_client.upload_fileobj(qr_pdf_file, S3_BUCKET_NAME, pdf_key)
-                    except Exception as e:
-                        st.error(f"Error uploading PDF to S3: {e}")
-                        st.stop()
+                with st.form("qr_form"):
+                    df = pd.read_csv(USER_FILE)
+                    alumnos = df[df["role"] == "student"]["username"].tolist()
+                    target_user = st.selectbox(t("select_user"), alumnos, key="qr_select_user")
+                    qr_button = st.form_submit_button(t("generate_qr_button"))
                     
-                    base, ext = os.path.splitext(qr_pdf_file.name)
-                    output_pdf_key = f"{user_prefix}{base}_qr{ext}"
-                    
-                    temp_pdf_path = f"temp_{qr_pdf_file.name}"
-                    s3_client.download_file(S3_BUCKET_NAME, pdf_key, temp_pdf_path)
-                    
-                    temp_output_path = f"temp_{base}_qr{ext}"
-                    try:
-                        insertar_qr_en_pdf(temp_pdf_path, temp_output_path,username=st.session_state.username)
-                        st.success(t("qr_generation_success"))
-                        s3_client.upload_file(temp_output_path, S3_BUCKET_NAME, output_pdf_key)
-                        with open(temp_output_path, "rb") as f:
-                            st.session_state.qr_pdf_content = f.read()
-                        st.session_state.qr_pdf_filename = f"{base}_qr{ext}"
-                    except Exception as e:
-                        st.error(f"Error generating PDF with QR: {e}")
-                        st.session_state.qr_pdf_content = None
-                        st.session_state.qr_pdf_filename = None
-                    
-                    if os.path.exists(temp_pdf_path):
-                        os.remove(temp_pdf_path)
-                    if os.path.exists(temp_output_path):
-                        os.remove(temp_output_path)
+                    if qr_button:
+                        user_prefix = f"{S3_KEY_PREFIX}{target_user}/documents/"
+                        pdf_key = f"{user_prefix}{qr_pdf_file.name}"
+                        try:
+                            s3_client.upload_fileobj(qr_pdf_file, S3_BUCKET_NAME, pdf_key)
+                        except Exception as e:
+                            st.error(f"Error uploading PDF to S3: {e}")
+                            st.stop()
+                        
+                        base, ext = os.path.splitext(qr_pdf_file.name)
+                        output_pdf_key = f"{user_prefix}{base}_qr{ext}"
+                        
+                        temp_pdf_path = f"temp_{qr_pdf_file.name}"
+                        s3_client.download_file(S3_BUCKET_NAME, pdf_key, temp_pdf_path)
+                        
+                        temp_output_path = f"temp_{base}_qr{ext}"
+                        try:
+                            insertar_qr_en_pdf(temp_pdf_path, temp_output_path, username=target_user)
+                            st.success(t("qr_generation_success"))
+                            s3_client.upload_file(temp_output_path, S3_BUCKET_NAME, output_pdf_key)
+                            with open(temp_output_path, "rb") as f:
+                                st.session_state.qr_pdf_content = f.read()
+                            st.session_state.qr_pdf_filename = f"{base}_qr{ext}"
+                        except Exception as e:
+                            st.error(f"Error generating PDF with QR: {e}")
+                            st.session_state.qr_pdf_content = None
+                            st.session_state.qr_pdf_filename = None
+                        
+                        if os.path.exists(temp_pdf_path):
+                            os.remove(temp_pdf_path)
+                        if os.path.exists(temp_output_path):
+                            os.remove(temp_output_path)
                 
                 if "qr_pdf_content" in st.session_state and st.session_state.qr_pdf_content:
                     st.download_button(
