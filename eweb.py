@@ -48,48 +48,198 @@ GITHUB_BRANCH = "main"  # Replace with your branch name
 GITHUB_FILE_PATH = "usuarios.csv"  # Path to usuarios.csv in the repository
 
 # Path to usuarios.csv in S3
-USERS_FILE_S3_KEY = "media/usuarios.csv"
+USERS_FILE_S3_KEY = "app_data/usuarios.csv"
 
 
 # Function to update usuarios.csv in GitHub repository
 def update_users_csv_in_github():
     try:
-        # Download the updated usuarios.csv from S3
-        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=USERS_FILE_S3_KEY)
-        csv_content = response['Body'].read()
+        # Read the updated local usuarios.csv
+        with open(USER_FILE, 'rb') as f:
+            csv_content = f.read()
 
         # Base64 encode the content
         content_base64 = base64.b64encode(csv_content).decode('utf-8')
 
-        # Get the current file from GitHub to obtain its SHA (required for updates)
+        # Get the current file from GitHub to obtain its SHA
         headers = {
             "Authorization": f"token {GITHUB_TOKEN}",
             "Accept": "application/vnd.github.v3+json"
         }
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}?ref={GITHUB_BRANCH}"
         response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        file_info = response.json()
-        current_sha = file_info['sha']
+        current_sha = None
+        if response.status_code == 200:
+            file_info = response.json()
+            current_sha = file_info['sha']
+        elif response.status_code != 404:
+            st.error(f"GitHub API error fetching SHA: {response.status_code}, {response.text}")
+            return False
 
-        # Update the file on GitHub
+        # Update or create the file on GitHub
         update_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}"
         payload = {
-            "message": f"Update usuarios.csv with new user registration at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "message": f"Update usuarios.csv at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "content": content_base64,
-            "sha": current_sha,
             "branch": GITHUB_BRANCH
         }
+        if current_sha:
+            payload["sha"] = current_sha
         response = requests.put(update_url, headers=headers, json=payload)
-        response.raise_for_status()
+        if response.status_code not in [200, 201]:
+            st.error(f"GitHub API error updating file: {response.status_code}, {response.text}")
+            return False
         return True
     except Exception as e:
-        st.error(f"Error updating usuarios.csv in GitHub: {e}")
+        st.error(f"Error updating usuarios.csv in GitHub: {str(e)}")
         return False
 
 # Configuration
 USER_FILE = "usuarios.csv"
 
+# Función para inicializar la base de datos de usuarios
+def init_user_db():
+    try:
+        if not os.path.exists(USER_FILE):
+            # Try to download from S3 first
+            try:
+                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=USERS_FILE_S3_KEY)
+                csv_content = response['Body'].read().decode('utf-8')
+                with open(USER_FILE, 'w', encoding='utf-8') as f:
+                    f.write(csv_content)
+                # Validate CSV
+                df = pd.read_csv(USER_FILE)
+                if not all(col in df.columns for col in ["username", "password", "role"]):
+                    raise ValueError("Invalid CSV format from S3")
+            except (s3_client.exceptions.NoSuchKey, ValueError, Exception) as e:
+                # If S3 fails, try GitHub
+                try:
+                    headers = {
+                        "Authorization": f"token {GITHUB_TOKEN}",
+                        "Accept": "application/vnd.github.v3+json"
+                    }
+                    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE_PATH}?ref={GITHUB_BRANCH}"
+                    response = requests.get(url, headers=headers)
+                    if response.status_code == 200:
+                        file_info = response.json()
+                        csv_content = base64.b64decode(file_info['content']).decode('utf-8')
+                        with open(USER_FILE, 'w', encoding='utf-8') as f:
+                            f.write(csv_content)
+                        # Validate CSV
+                        df = pd.read_csv(USER_FILE)
+                        if not all(col in df.columns for col in ["username", "password", "role"]):
+                            raise ValueError("Invalid CSV format from GitHub")
+                    else:
+                        # Create empty CSV
+                        df = pd.DataFrame(columns=["username", "password", "role"])
+                        df.to_csv(USER_FILE, index=False, encoding='utf-8')
+                        # Upload to S3
+                        s3_client.upload_file(USER_FILE, S3_BUCKET_NAME, USERS_FILE_S3_KEY)
+                        # Upload to GitHub
+                        update_users_csv_in_github()
+                except Exception as e:
+                    st.error(f"Error initializing usuarios.csv from GitHub: {str(e)}")
+                    # Create empty CSV as last resort
+                    df = pd.DataFrame(columns=["username", "password", "role"])
+                    df.to_csv(USER_FILE, index=False, encoding='utf-8')
+                    s3_client.upload_file(USER_FILE, S3_BUCKET_NAME, USERS_FILE_S3_KEY)
+                    update_users_csv_in_github()
+    except OSError as e:
+        st.error(f"Error creating user database: {str(e)}")
+        raise
+
+# Función para registrar a un nuevo usuario
+def register_user(username, password, role):
+    try:
+        df = pd.read_csv(USER_FILE)
+        if username in df["username"].values:
+            return False, "register_error_exists"
+        hashed_password = hash_password(password)
+        new_user = pd.DataFrame([[username, hashed_password, role]], columns=["username", "password", "role"])
+        df = pd.concat([df, new_user], ignore_index=True)
+        df.to_csv(USER_FILE, index=False, encoding='utf-8')
+
+        # Upload updated CSV to S3
+        try:
+            s3_client.upload_file(USER_FILE, S3_BUCKET_NAME, USERS_FILE_S3_KEY)
+        except Exception as e:
+            st.error(f"Error uploading usuarios.csv to S3: {str(e)}")
+
+        # Update usuarios.csv in GitHub
+        if not update_users_csv_in_github():
+            st.error("Failed to update GitHub, but user registered locally and in S3.")
+
+        # Crear el "directorio" del usuario en S3
+        user_prefix = f"{S3_KEY_PREFIX}{username}/"
+        documents_prefix = f"{user_prefix}documents/"
+        keys_prefix = f"{user_prefix}keys/"
+        try:
+            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=documents_prefix)
+            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=keys_prefix)
+        except Exception as e:
+            st.error(f"Error creating S3 prefix for {username}: {str(e)}")
+            return False, "register_error"
+
+        # Generar y guardar dos pares de llaves (RSA y ECDSA) si es estudiante
+        if role == "student":
+            for method in ["rsa", "ecdsa"]:
+                try:
+                    private_key, public_key = generar_par_llaves(method)
+                    private_key_key = f"{keys_prefix}{username}_{method}_private_key.pem"
+                    private_key_bytes = private_key.private_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PrivateFormat.PKCS8,
+                        encryption_algorithm=serialization.NoEncryption()
+                    )
+                    s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=private_key_key, Body=private_key_bytes)
+                    public_key_key = f"{keys_prefix}{username}_{method}_public_key.pem"
+                    public_key_bytes = public_key.public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo
+                    )
+                    s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=public_key_key, Body=public_key_bytes)
+                except Exception as e:
+                    st.error(f"Error generating/storing keys for {username} ({method}): {str(e)}")
+                    return False, "register_error"
+
+        return True, "register_success"
+    except OSError as e:
+        st.error(f"Error registering user: {str(e)}")
+        return False, "register_error"
+
+# Función para obtener/extraer contraseñas
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+# Función para verificar las credenciales de inicio de sesión y obtener el rol
+def verify_user(username, password):
+    try:
+        df = pd.read_csv(USER_FILE)
+        hashed_password = hash_password(password)
+        user_row = df[(df["username"] == username) & (df["password"] == hashed_password)]
+        if not user_row.empty:
+            return True, user_row["role"].iloc[0]
+        return False, None
+    except OSError as e:
+        st.error(f"Error verifying user: {e}")
+        return False, None
+
+# Función para crear un archivo ZIP desde S3
+def create_zip_file_from_s3(s3_files):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for s3_file in s3_files:
+            file_name = s3_file.split('/')[-1]
+            try:
+                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_file)
+                file_content = response['Body'].read()
+                zip_file.writestr(file_name, file_content)
+            except Exception as e:
+                st.error(f"Error adding {file_name} to ZIP: {e}")
+    buffer.seek(0)
+    return buffer.getvalue()
+    
 # ------ App -----
 
 # Definir el CSS para el fondo, tipografía e imágenes
@@ -320,99 +470,6 @@ TRANSLATIONS = {
 def t(key, **kwargs):
     text = TRANSLATIONS[st.session_state.get("language", "es")][key]
     return text.format(**kwargs) if kwargs else text
-
-# Función para obtener/extraer contraseñas
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-# Función para inicializar la base de datos de usuarios
-def init_user_db():
-    try:
-        if not os.path.exists(USER_FILE):
-            df = pd.DataFrame(columns=["username", "password", "role"])
-            df.to_csv(USER_FILE, index=False)
-    except OSError as e:
-        st.error(f"Error creating user database: {e}")
-        raise
-
-# Función para registrar a un nuevo usuario
-def register_user(username, password, role):
-    try:
-        df = pd.read_csv(USER_FILE)
-        if username in df["username"].values:
-            return False, "register_error_exists"
-        hashed_password = hash_password(password)
-        new_user = pd.DataFrame([[username, hashed_password, role]], columns=["username", "password", "role"])
-        df = pd.concat([df, new_user], ignore_index=True)
-        df.to_csv(USER_FILE, index=False)
-
-        # Crear el "directorio" del usuario en S3
-        user_prefix = f"{S3_KEY_PREFIX}{username}/"
-        documents_prefix = f"{user_prefix}documents/"
-        keys_prefix = f"{user_prefix}keys/"
-        try:
-            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=documents_prefix)
-            s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=keys_prefix)
-        except Exception as e:
-            st.error(f"Error creating S3 prefix for {username}: {e}")
-            return False, "register_error"
-
-        # Generar y guardar dos pares de llaves (RSA y ECDSA) si es estudiante
-        if role == "student":
-            for method in ["rsa", "ecdsa"]:
-                try:
-                    private_key, public_key = generar_par_llaves(method)
-                    # Guardar llave privada
-                    private_key_key = f"{keys_prefix}{username}_{method}_private_key.pem"
-                    private_key_bytes = private_key.private_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PrivateFormat.PKCS8,
-                        encryption_algorithm=serialization.NoEncryption()
-                    )
-                    s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=private_key_key, Body=private_key_bytes)
-                    # Guardar llave pública
-                    public_key_key = f"{keys_prefix}{username}_{method}_public_key.pem"
-                    public_key_bytes = public_key.public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo
-                    )
-                    s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=public_key_key, Body=public_key_bytes)
-                except Exception as e:
-                    st.error(f"Error generating/storing keys for {username} ({method}): {e}")
-                    return False, "register_error"
-
-        return True, "register_success"
-    except OSError as e:
-        st.error(f"Error registering user: {e}")
-        return False, "register_error"
-
-# Función para verificar las credenciales de inicio de sesión y obtener el rol
-def verify_user(username, password):
-    try:
-        df = pd.read_csv(USER_FILE)
-        hashed_password = hash_password(password)
-        user_row = df[(df["username"] == username) & (df["password"] == hashed_password)]
-        if not user_row.empty:
-            return True, user_row["role"].iloc[0]
-        return False, None
-    except OSError as e:
-        st.error(f"Error verifying user: {e}")
-        return False, None
-
-# Función para crear un archivo ZIP desde S3
-def create_zip_file_from_s3(s3_files):
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for s3_file in s3_files:
-            file_name = s3_file.split('/')[-1]
-            try:
-                response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_file)
-                file_content = response['Body'].read()
-                zip_file.writestr(file_name, file_content)
-            except Exception as e:
-                st.error(f"Error adding {file_name} to ZIP: {e}")
-    buffer.seek(0)
-    return buffer.getvalue()
 
 # Inicializar el estado de la sesión
 if "logged_in" not in st.session_state:
