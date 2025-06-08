@@ -504,6 +504,12 @@ init_user_db()
 query_params = st.query_params
 secret_hash = query_params.get("verify_secret")
 if secret_hash:
+    # Muestra los logos en la pestaña secreta
+    col1, col2, col3 = st.columns([5, 2, 5])
+    with col1:
+        st.image("assets/tec de monterrey.png", width=250)
+    with col3:
+        st.image("assets/PREPANET.png", width=190)
     target_user = validate_secret_hash(secret_hash)
     if target_user:
         st.header("Verificar Documento de Estudiante")
@@ -529,6 +535,16 @@ if secret_hash:
                     st.error(t("verify_error", error=message))
     else:
         st.error("URL inválida o usuario no encontrado.")
+        # Agregar texto al final de la pestaña secreta
+    st.markdown(
+        '<div class="footer-text">© 2025 App de Firma Digital</div>'
+        '</br>'
+        'Nathan Isaac García Larios A01749595@tec.mx </br>'
+        'Tamara Alejandra Ortiz Villareal A01750582@tec.mx</br>'
+        'Ximena Serna Mendoza A01749870@tec.mx</br>'
+        'Profesor: Eliseo Sarmiento Rosales ',
+        unsafe_allow_html=True
+    )
     st.stop()
 
 
