@@ -24,7 +24,7 @@ def generar_qr(data, output_image):
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,  # Reduced from default 10 for smaller QR
+        box_size=8,  # Reduced from default 10 for smaller QR
         border=4
     )
     qr.add_data(data)
