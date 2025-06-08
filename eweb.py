@@ -192,7 +192,7 @@ USER_FILE = "usuarios.csv"
 TRANSLATIONS = {
     "es": {
         "page_title": "App de Firma Digital",
-        "welcome_title": "Bienvenido a la App de Firma Digital",
+        "welcome_title": "Bienvenid@ a la App de Firma Digital",
         "select_role_tab": "Seleccionar Rol",
         "login_tab": "Iniciar Sesión",
         "register_tab": "Registrarse",
@@ -214,7 +214,7 @@ TRANSLATIONS = {
         "register_success": "¡Registro exitoso! Por favor, inicia sesión.",
         "register_error_exists": "Nombre de usuario ya existe",
         "register_error_empty": "Por favor, completa todos los campos",
-        "welcome": "¡Bienvenido, {username}!",
+        "welcome": "¡Bienvenid@, {username}!",
         "dashboard": "Este es tu panel de firma digital.",
         "logout": "Cerrar Sesión",
         "sign_tab": "Firmar Documento",
