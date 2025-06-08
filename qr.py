@@ -42,7 +42,7 @@ def encontrar_posicion_sin_texto(pagina, imagen_ancho, imagen_alto, margen=20, p
 
     return fitz.Rect(x_inferior, y_inferior, x_inferior + imagen_ancho, y_inferior + imagen_alto)
 
-def insertar_qr_en_pdf(pdf_path, output_pdf_path, username, margen=20, escala=0.2):
+def insertar_qr_en_pdf(pdf_path, output_pdf_path, username, margen=20, escala=0.3):
     """Inserta un QR con la URL de verificación del usuario en el PDF y guarda el resultado en S3."""
     qr_data = f"https://firma-digital-fehyswytlauyyhd6r2mdkitcmtryn3m.streamlit.app/?verify_secret={hash_username(username)}"
     qr_image_path = "qr_temp.png"
