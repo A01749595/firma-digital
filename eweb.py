@@ -514,7 +514,7 @@ if secret_hash:
         st.image("assets/PREPANET.png", width=190)
     target_user = validate_secret_hash(secret_hash)
     if target_user:
-        st.header("Verificar Documento de Estudiante")
+        st.header(f"Verificar Documento de Estudiante: {target_user}")
         verify_file = st.file_uploader("Subir documento para verificar (PDF)", type=["pdf"], key="secret_verify_doc")
         if verify_file:
             st.write(f"Documento subido: {verify_file.name}")
