@@ -10,7 +10,7 @@ from firmar import hash_username
 load_dotenv()
 
 # Configuración de AWS S3
-S3_BUCKET_NAME = "bucket-efirma"
+S3_BUCKET_NAME = "bucket-firmadig"
 S3_KEY_PREFIX = "media/"
 s3_client = boto3.client(
     's3',
@@ -44,35 +44,28 @@ def encontrar_posicion_sin_texto(pagina, imagen_ancho, imagen_alto, margen=20, p
 
 def insertar_qr_en_pdf(pdf_path, output_pdf_path, username, margen=20, escala=0.4):
     """Inserta un QR con la URL de verificación del usuario en el PDF y guarda el resultado en S3."""
-    # Generar URL secreta para el QR
-    qr_data = f"http://firma-digital-fehyswytlauyyhd6r2mdkitcmtryn3m.streamlit.app//?verify_secret={hash_username(username)}"
+    qr_data = f"https://firma-digital-fehyswytlauyyhd6r2mdkitcmtryn3m.streamlit.app/?verify_secret={hash_username(username)}"
     qr_image_path = "qr_temp.png"
     generar_qr(qr_data, qr_image_path)
     
-    # Abrir el PDF
     doc = fitz.open(pdf_path)
     imagen = Image.open(qr_image_path)
 
-    # Redimensionar QR
     imagen = imagen.resize(
         (int(imagen.width * escala), int(imagen.height * escala)),
         Image.LANCZOS
     )
     imagen_ancho, imagen_alto = imagen.size
 
-    # Guardar imagen redimensionada temporalmente
     imagen_reescalada_path = "qr_temp_resized.png"
     imagen.save(imagen_reescalada_path)
 
-    # Insertar solo en la primera página
     pagina = doc[0]
     rect = encontrar_posicion_sin_texto(pagina, imagen_ancho, imagen_alto, margen)
     pagina.insert_image(rect, filename=imagen_reescalada_path)
 
-    # Guardar el PDF modificado localmente primero
     doc.save(output_pdf_path)
 
-    # Limpiar archivos temporales
     if os.path.exists(qr_image_path):
         os.remove(qr_image_path)
     if os.path.exists(imagen_reescalada_path):
