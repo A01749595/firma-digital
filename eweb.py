@@ -739,7 +739,7 @@ else:
                     
                     temp_output_path = f"temp_{base}_qr{ext}"
                     try:
-                        insertar_qr_en_pdf(temp_pdf_path, temp_output_path)
+                        insertar_qr_en_pdf(temp_pdf_path, temp_output_path,username=st.session_state.username)
                         st.success(t("qr_generation_success"))
                         s3_client.upload_file(temp_output_path, S3_BUCKET_NAME, output_pdf_key)
                         with open(temp_output_path, "rb") as f:
