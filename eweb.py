@@ -48,7 +48,7 @@ GITHUB_BRANCH = "main"  # Replace with your branch name
 GITHUB_FILE_PATH = "usuarios.csv"  # Path to usuarios.csv in the repository
 
 # Path to usuarios.csv in S3
-USERS_FILE_S3_KEY = "app_data/usuarios.csv"
+USERS_FILE_S3_KEY = "media/usuarios.csv"
 
 
 # Function to update usuarios.csv in GitHub repository
