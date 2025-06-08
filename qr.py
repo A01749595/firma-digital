@@ -3,14 +3,15 @@ from PIL import Image
 import fitz  # PyMuPDF
 import os
 import boto3
-from dotenv import load_dotenv  
+from dotenv import load_dotenv
+from firmar import hash_username
 
 # Cargar variables de entorno desde .env
 load_dotenv()
 
 # Configuración de AWS S3
-S3_BUCKET_NAME = "bucket-firmadig"  # Nombre del bucket
-S3_KEY_PREFIX = "media/"          #Nombre de la carpeta en el bucket 
+S3_BUCKET_NAME = "bucket-efirma"
+S3_KEY_PREFIX = "media/"
 s3_client = boto3.client(
     's3',
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -41,9 +42,10 @@ def encontrar_posicion_sin_texto(pagina, imagen_ancho, imagen_alto, margen=20, p
 
     return fitz.Rect(x_inferior, y_inferior, x_inferior + imagen_ancho, y_inferior + imagen_alto)
 
-def insertar_qr_en_pdf(pdf_path, output_pdf_path, qr_data="https://ejemplo.com", margen=20, escala=0.4):
-    """Inserta un QR en el PDF y guarda el resultado en S3."""
-    # Generar QR
+def insertar_qr_en_pdf(pdf_path, output_pdf_path, username, margen=20, escala=0.4):
+    """Inserta un QR con la URL de verificación del usuario en el PDF y guarda el resultado en S3."""
+    # Generar URL secreta para el QR
+    qr_data = f"http://firma-digital-fehyswytlauyyhd6r2mdkitcmtryn3m.streamlit.app//?verify_secret={hash_username(username)}"
     qr_image_path = "qr_temp.png"
     generar_qr(qr_data, qr_image_path)
     
