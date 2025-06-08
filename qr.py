@@ -19,10 +19,18 @@ s3_client = boto3.client(
     region_name=os.getenv("AWS_DEFAULT_REGION")
 )
 
-def generar_qr(data, output_image):More actions
-    """Genera una imagen QR y la guarda"""
-    qr = qrcode.make(data).convert("RGB")
-    qr.save(output_image)
+def generar_qr(data, output_image):
+    """Genera una imagen QR más pequeña y la guarda"""
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=5,  # Reduced from default 10 for smaller QR
+        border=4
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    img.save(output_image)
     return output_image
 
 def encontrar_posicion_sin_texto(pagina, imagen_ancho, imagen_alto, margen=20, paso=5):
@@ -42,7 +50,7 @@ def encontrar_posicion_sin_texto(pagina, imagen_ancho, imagen_alto, margen=20, p
 
     return fitz.Rect(x_inferior, y_inferior, x_inferior + imagen_ancho, y_inferior + imagen_alto)
 
-def insertar_qr_en_pdf(pdf_path, output_pdf_path, username, margen=20, escala=0.25):
+def insertar_qr_en_pdf(pdf_path, output_pdf_path, username, margen=20, escala=0.6):
     """Inserta un QR con la URL de verificación del usuario en el PDF y guarda el resultado en S3."""
     qr_data = f"https://firma-digital-fehyswytlauyyhd6r2mdkitcmtryn3m.streamlit.app/?verify_secret={hash_username(username)}"
     qr_image_path = "qr_temp.png"
