@@ -496,6 +496,8 @@ if "signed_files" not in st.session_state:
     st.session_state.signed_files = None
 if "signing_method" not in st.session_state:
     st.session_state.signing_method = None
+if "signing_success" not in st.session_state:
+    st.session_state.signing_success = False
 
 # Inicializar la base de datos de usuarios
 init_user_db()
@@ -546,8 +548,6 @@ if secret_hash:
         unsafe_allow_html=True
     )
     st.stop()
-
-
 
 # Muestra los logos a los lados
 col1, col2, col3 = st.columns([5, 2, 5])
