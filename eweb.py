@@ -239,7 +239,51 @@ def create_zip_file_from_s3(s3_files):
                 st.error(f"Error adding {file_name} to ZIP: {e}")
     buffer.seek(0)
     return buffer.getvalue()
-    
+
+# Function to validate hashed username and get original username
+def validate_secret_hash(secret_hash):
+    try:
+        df = pd.read_csv(USER_FILE)
+        students = df[df["role"] == "student"]
+        for username in students["username"]:
+            if hash_username(username) == secret_hash:
+                return username
+        return None
+    except Exception as e:
+        st.error(f"Error validating secret hash: {str(e)}")
+        return None
+
+# Check for secret verification tab
+query_params = st.query_params
+secret_hash = query_params.get("verify_secret")
+if secret_hash:
+    target_user = validate_secret_hash(secret_hash)
+    if target_user:
+        st.header("Verificar Documento de Estudiante")
+        verify_file = st.file_uploader("Subir documento para verificar (PDF)", type=["pdf"], key="secret_verify_doc")
+        if verify_file:
+            st.write(f"Documento subido: {verify_file.name}")
+            if st.button("Verificar Documento"):
+                user_prefix = f"{S3_KEY_PREFIX}{target_user}/documents/"
+                doc_key = f"{user_prefix}{verify_file.name}"
+                try:
+                    s3_client.upload_fileobj(verify_file, S3_BUCKET_NAME, doc_key)
+                except Exception as e:
+                    st.error(f"Error uploading document to S3: {str(e)}")
+                    st.stop()
+                is_valid, message = verify_document(doc_key, target_user)
+                if is_valid:
+                    st.success(t("verify_success"))
+                    st.write(t("verify_details"))
+                    st.write(t("verified_on", timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+                    st.write(t("verify_caption"))
+                    st.write(message)
+                else:
+                    st.error(t("verify_error", error=message))
+    else:
+        st.error("URL inválida o usuario no encontrado.")
+    st.stop()
+
 # ------ App -----
 
 # Definir el CSS para el fondo, tipografía e imágenes
