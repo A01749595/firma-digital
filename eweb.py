@@ -18,7 +18,7 @@ import base64
 import requests
 import boto3  # Added for AWS S3 integration
 from dotenv import load_dotenv  # Added for loading .env file
-from firmar import sign_document, generar_par_llaves
+from firmar import sign_document, generar_par_llaves, hash_username
 from verificar import verify_document
 from qr import insertar_qr_en_pdf
 
